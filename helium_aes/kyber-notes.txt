@@ -1,0 +1,11 @@
+
+Kyber is the AVX2 version taken from PQClean
+(https://github.com/PQClean/PQClean), along with some of the `common` code of
+PQClean.
+c1b19a865de329e87e9b3e9152362fcb709da8ab
+
+The Makefile is modified to build a static library that includes the `common' code from PQClean. 
+
+We also add a deterministic version of kem_enc that allows the caller to pass the randomness used for encryption
+
+We add a decryption function that returns an error indicating whether decryption failed or not. 

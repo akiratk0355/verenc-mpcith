@@ -1,0 +1,147 @@
+
+CS03 cost estimates
+https://eprint.iacr.org/2002/161.pdf
+
+Params
+n = p*q
+p and q are safe primes (Sophie-Germain)
+\ell bits long
+public key elements (g, y_i) are in (Z_n^2)^*
+elements of Z_n^2 are 2*\ell bits long
+
+To estimate the costs of the scheme we count the number of exponentiations, they are all in Z_{n^2} but the length of the exponents vary (and can have a large impact on performance), so in addition to the number of exponentations, we also need the exponent length.
+Once we have these counts, we measure the cost of one exponentiation with a given length exponent on the same machine, then estimate the cost of each operation. 
+
+== Computing the ciphertext (u,e,v)  (Page 10) == 
+Assume m is 256 bits (to compare with our scheme)
+r is an n/4 size integer (rougly log(n) bits)
+compute u: one log(n)-bit exp. 
+compute e: one log(n)-bit exp + one 256-bit exp.
+compute v: 2 log(n)-bit exp
+
+Total: 4 log(n)-bit exp + one 256-bit exp
+
+Decrypt: two n^2-bit exps 
+(but here optimizations that use p, q are going to speed it up)
+
+== Creating the proof (sigma protocol) (Page 19) ==
+Params: assume that k = 256
+
+= Prover = 
+Step 1: one log(n) bit exp + one 256-bit exp
+Step 2(a): r', s', m' are 2k bits
+u' : one 2k-bit exp
+e' : two 2k-bit exp
+v' : one 2k-bit exp, one n-bit exp
+\delta' : one 2k-bit exp
+f' : two 2k-bit exp
+Total: two log(n) bit exp + one 256-bit + seven 2k-bit exp 
+
+= Verifier = 
+Step 2(d)
+u' : one k-bit exp + one 2k-bit exp
+e' : one k-bit exp + two 2k-bit exp
+v' : one k-bit exp + one 2k-bit exp + one log(n)-bit exp
+d' : one k-bit exp + one 2k-bit exp
+f' : one k-bit exp + two 2k-bit exp
+Total : five k-bit exp + seven 2k-bit exp + one log(n)-bit exp
+
+
+== Bitlength of n ==
+
+We don't know of genrally accepted guidance for choosing concrete paramters for the DCR assumption and the Strong RSA assumptions.  If we make the (strong) assumption that they are equivalent to RSA/factoring, then we need a 3072-bit modulus for 128-bit security.  A more conservative parameter choice would assume the attacker can make use of an SNFS-like algorithm, and would set the bitlength of n to 4096 bits (or larger).
+Thus we benchmark with n^2 at bitlengths of 6144 (agressive) and 8192 (conservative)
+
+=== Benchmarks from crypto_bigint ===
+We benchmark the time for modular exponentation using the Rust library "crypto_bigint" version 0.52. (https://docs.rs/crypto-bigint/latest/crypto_bigint/)
+
+For reference, `openssl speed rsa4096` reports 3.52 ms per signing operation; but because the CRT is used here it's probably comparable to a U2048^U2048.  Unfortunately `openssl speed` doesn't support larger RSA params.
+(openssl version : OpenSSL 3.0.2 15 Mar 2022 (Library: OpenSSL 3.0.2 15 Mar 2022))
+When I benchmark U2048^U2048 with crypto-bigint I get 6.17ms, about 2x.
+This suggets that a highly optimized implementation of CS03 could be about 2x faster than our estimates. 
+That said, our benchmarks are also not using the most optimized C code, we also use a pure-Rust library that is generic as opposed to highly-optimized.  So crypto-bigint is a reasonably fast implementation, and makes a fair comparison. 
+
+
+Conservative parameters, Z_n : 4096 bits, Z_n^2 : 8192 bits
+```
+Montgomery arithmetic/modpow, U8192^U8192
+                        time:   [353.15 ms 353.44 ms 353.85 ms]
+Montgomery arithmetic/modpow, U8192^U4096
+                        time:   [176.79 ms 176.92 ms 177.07 ms]
+Montgomery arithmetic/modpow, U8192^U512
+                        time:   [22.495 ms 22.509 ms 22.523 ms]
+Montgomery arithmetic/modpow, U8192^U256
+                        time:   [11.482 ms 11.495 ms 11.514 ms]
+```
+
+Aggressive parameters, Z_n : 3072 bits, Z_n^2 : 6144 bits
+```
+Montgomery arithmetic/modpow, U6144^U6144
+                        time:   [150.16 ms 150.27 ms 150.39 ms]
+Montgomery arithmetic/modpow, U6144^U3072
+                        time:   [75.242 ms 75.326 ms 75.425 ms]
+Montgomery arithmetic/modpow, U6144^U512
+                        time:   [12.746 ms 12.755 ms 12.764 ms]
+Montgomery arithmetic/modpow, U6144^U256
+                        time:   [6.5017 ms 6.5106 ms 6.5222 ms]
+```
+
+=== Cost estimates === 
+// Conservative: 
+time_n2_exp = 353.4
+time_n_exp = 176.9
+time_512_exp = 22.5
+time_256_exp = 11.5
+time_encrypt = 4*time_n_exp + time_256_exp
+time_prove = 2*time_n_exp + time_256_exp + 7*time_512_exp
+time_verify = 5*time_256_exp + 7*time_512_exp + time_n_exp
+time_decrypt = 2*time_n2_exp
+
+? time_encrypt = 4*time_n_exp + time_256_exp
+%5 = 719.10000000000000000000000000000000000
+? time_prove = 2*time_n_exp + time_256_exp + 7*time_512_exp
+%6 = 522.80000000000000000000000000000000000
+? time_verify = 5*time_256_exp + 7*time_512_exp + time_n_exp
+%7 = 391.90000000000000000000000000000000000
+? time_decrypt = 2*time_n2_exp
+%8 = 706.80000000000000000000000000000000000
+
+// Aggressive
+time_n2_exp = 150.3
+time_n_exp = 75.3
+time_512_exp = 12.8
+time_256_exp = 6.5
+time_encrypt = 4*time_n_exp + time_256_exp
+time_prove = 2*time_n_exp + time_256_exp + 7*time_512_exp
+time_verify = 5*time_256_exp + 7*time_512_exp + time_n_exp
+time_decrypt = 2*time_n2_exp
+
+? time_encrypt = 4*time_n_exp + time_256_exp
+%5 = 307.70000000000000000000000000000000000
+? time_prove = 2*time_n_exp + time_256_exp + 7*time_512_exp
+%6 = 246.70000000000000000000000000000000000
+? time_verify = 5*time_256_exp + 7*time_512_exp + time_n_exp
+%7 = 197.40000000000000000000000000000000000
+? time_decrypt = 2*time_n2_exp
+%8 = 300.60000000000000000000000000000000000
+
+=== Comparison === 
+To compare with Table 1, 
+P(ms) = time_encrypt + time_prove
+Conservative: 1241.9 ms
+Aggressive: 554.4
+V(ms) = time_verify
+Conservative: 391.9
+Aggressive: 197.4
+
+Sizes
+|C| = 3*Z_n^2 elts
+Conservative: 3072 bytes
+Aggressive: 2304 bytes
+
+|tr| = 3 approx n-bit values, one 256-bit value
+Conservative: 1568
+Aggressive: 1184
+
+(Proof sizes |tr| are pretty small because we don't have to send the Z_n^2 elts when using FS, just hash them then send the response values and the challenge.)
+
