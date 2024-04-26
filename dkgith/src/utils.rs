@@ -6,9 +6,9 @@ use std::convert::TryInto;
 
 // ark
 use ark_serialize::CanonicalSerialize;
-use ark_ff::{PrimeField};
-use ark_ec::{AffineRepr};
-use ark_secp256r1::{Affine as GGA};
+use ark_ff::PrimeField;
+use ark_ec::AffineRepr;
+use ark_secp256r1::Affine as GGA;
 use ark_secp256r1::Fr as FF;
 
 
@@ -82,8 +82,8 @@ pub fn seed_to_FF(seed: Seed, salt: &[u8], rep_index : usize, party_index : usiz
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ark_secp256r1::{Projective as GG};
-    use ark_ec::{Group};
+    use ark_secp256r1::Projective as GG;
+    use ark_ec::Group;
     use crate::ark_std::UniformRand;
     #[test]
     fn test_ec() {

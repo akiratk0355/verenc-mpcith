@@ -15,7 +15,7 @@ use sha2::{Digest, Sha512};
 // ark
 use ark_std::{Zero, UniformRand, ops::Mul};
 use ark_serialize::CanonicalSerialize;
-use ark_ff::{PrimeField};
+use ark_ff::PrimeField;
 use ark_ec::{AffineRepr, Group, CurveGroup};
 use ark_secp256r1::{Affine as GGA, Projective as GG};
 use ark_secp256r1::Fr as FF;
@@ -36,8 +36,8 @@ pub struct DkgithParams {
 #[derive(Clone, Debug)]
 pub struct DkgithProof {
     pub(crate) challenge : Vec<u8>,
-    pub(crate) ctexts : Vec<FF>,    // unopened ciphertexts ct_i, only c2 component (c1's recomputed)
-    pub(crate) seeds: Vec<Vec<Seed>>, // Seeds required to reconstruct (s_i)_{i\neq i^*}
+    pub(crate) ctexts : Vec<PKECipherText>,     // unopened ciphertexts ct_i
+    pub(crate) seeds: Vec<Vec<Seed>>,           // Seeds required to reconstruct (s_i)_{i\neq i^*}
     pub(crate) deltas : Vec<FF>,
     pub(crate) salt : [u8 ; SALT_SIZE],
 }
@@ -147,7 +147,7 @@ impl VerEnc for Dkgith {
         assert!(tau < 65536);
 
         let mut ret_bcasts = Vec::<GGA>::with_capacity(tau);
-        let mut ret_ctexts = Vec::<FF>::with_capacity(tau);
+        let mut ret_ctexts = Vec::<PKECipherText>::with_capacity(tau);
         let mut ret_seeds = Vec::<Vec<Seed>>::with_capacity(tau);
         let mut ret_rands = vec![vec![FF::zero(); N]; tau];
 
@@ -186,7 +186,8 @@ impl VerEnc for Dkgith {
                 hasher.update(Yi_bytes);
                 bcasts[j][i] = Yi.clone();
                 
-                let ct = self.pke.encrypt_given_c1(&self.ek, &shares[j][i], &shares[j][i], Yi);
+                let r = seed_to_FF(seed_trees[j].get_leaf(i), &salt.as_slice(), j, i, Some(&[0x00]));                
+                let ct = self.pke.encrypt_given_r(&self.ek, &shares[j][i], &r);
                 ctexts[j][i] = ct;
 
                 hasher.update(ct.to_bytes());
@@ -210,7 +211,7 @@ impl VerEnc for Dkgith {
         for j in 0..tau {
             let i_hidden = p_indices[j]; 
             ret_bcasts.insert(j, bcasts[j][i_hidden]);
-            ret_ctexts.insert(j, ctexts[j][i_hidden].c2);
+            ret_ctexts.insert(j, ctexts[j][i_hidden]);
             shares[j][i_hidden] = FF::zero();
             rands[j][i_hidden] = FF::zero();
             ret_seeds.push(seed_trees[j].open_seeds(i_hidden));
@@ -271,9 +272,10 @@ impl VerEnc for Dkgith {
                 
                 let ct = 
                 if i == i_hidden {
-                    PKECipherText{c1 : Ys[i].into_affine(), c2 : pi.ctexts[j]}
+                    pi.ctexts[j].clone()
                 } else {
-                    self.pke.encrypt_given_c1(&self.ek, &shares[j][i], &shares[j][i], Ys[i].into_affine())
+                    let r = seed_to_FF(seed_trees[j].get_leaf(i), &pi.salt.as_slice(), j, i, Some(&[0x00]));                
+                    self.pke.encrypt_given_r(&self.ek, &shares[j][i], &r)
                 };
                 hasher.update(ct.to_bytes());
             }
@@ -295,7 +297,7 @@ impl VerEnc for Dkgith {
         true
     }
     
-    fn compress(&self, stm: &Self::Statement, pi: &Self::VEProof) -> Self::VECipherText { 
+    fn compress(&self, _stm: &Self::Statement, pi: &Self::VEProof) -> Self::VECipherText { 
         let N = self.vparams.N;
         let tau = self.vparams.tau;
         let n = self.vparams.n;
@@ -308,7 +310,7 @@ impl VerEnc for Dkgith {
 
         for j_ref in subset {
             let j = *j_ref;
-            let mut c2_new = pi.ctexts[j];
+            let mut c2_new = pi.ctexts[j].c2;
             let mut sum = FF::zero();
             let i_hidden = p_indices[j];
             assert!(pi.seeds[j].len() == Self::ceil_log2(N));    // already ensured by Verify()
@@ -326,9 +328,10 @@ impl VerEnc for Dkgith {
                 }
                 sum += share;
             }
-            let c1_new = *stm - self.mul_G(sum);
+            //let c1_new = *stm - self.mul_G(sum);
+            let c1_new = pi.ctexts[j].c1;
             c2_new = c2_new + sum;
-            new_ctexts.push(PKECipherText { c1: c1_new.into_affine(), c2: c2_new });
+            new_ctexts.push(PKECipherText { c1: c1_new, c2: c2_new });
         }
 
         DkgithCipherText {
@@ -452,7 +455,7 @@ mod tests {
         println!("proof generated");
         // poisoning the proof string
         for j in 0..tau/2 {
-            pi.ctexts[j] += FF::from(1);
+            pi.ctexts[j].c2 += FF::from(1);
         }
         assert!(!ve.verify(&stm, &pi));
         let ve_ct = ve.compress(&stm, &pi);
@@ -466,7 +469,7 @@ mod tests {
         let field_elt_bytes = ((FF::MODULUS_BIT_SIZE + 7) / 8) as usize;
 
         let mut size = pi.challenge.len();
-        size += pi.ctexts.len() * field_elt_bytes;      // During proof the ciphertext is only c2
+        size += pi.ctexts.len() * pke_ctext_size();
         size += pi.seeds.len() * pi.seeds[0].len() * SEED_BYTES;
         size += pi.deltas.len() * field_elt_bytes;
         size += SALT_SIZE;
@@ -477,11 +480,11 @@ mod tests {
         let group_elt_bytes = GGA::compressed_size(&GGA::generator());
         let field_elt_bytes = ((FF::MODULUS_BIT_SIZE + 7) / 8) as usize;
 
-        let size = ctext.ctexts.len() * (group_elt_bytes + field_elt_bytes);   // The verifier recomputes c1 must include both (c1, c2) here
-
+        let size = ctext.ctexts.len() * (group_elt_bytes + field_elt_bytes);
+        
         size
     }
-    pub fn pke_ctext_size(_ctext : &PKECipherText) -> usize {
+    pub fn pke_ctext_size() -> usize {
         let group_elt_bytes = GGA::compressed_size(&GGA::generator());
         let field_elt_bytes = ((FF::MODULUS_BIT_SIZE + 7) / 8) as usize;
 
@@ -506,7 +509,7 @@ mod tests {
             print!("Proof size : {}\n", proof_size(&pi));
             assert!(ve.verify(&stm, &pi));
             let ve_ct = ve.compress(&stm, &pi);
-            print!("Ctext size : {}\n", tau * pke_ctext_size(&ve_ct.ctexts[0]));
+            print!("Ctext size : {}\n", tau * pke_ctext_size());
             print!("Ctext size (RS): {}\n", ctext_size(&ve_ct));
             let wit_recover = ve.recover(&stm, &dk, &ve_ct);
 
