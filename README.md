@@ -11,6 +11,7 @@ Using our implementation you can
 Details of our construction can be found in the accompanying paper:    
 **Verifiable Encryption from MPC-in-the-Head**    
 Akira Takahashi and Greg Zaverucha   
-[IACR ePrint Report 2021/1704](https://eprint.iacr.org/2021/1704)
+[IACR Communications in Cryptology, Volume 1, Issue 1, 2024.](https://cic.iacr.org/p/1/1/3)
+[IACR ePrint Report 2021/1704](https://eprint.iacr.org/2021/1704.pdf)
 
 Acknowledgements for the code we build on are in the two subdirectories.  The code for the  [crypto-bigint](https://github.com/akiratk0355/verenc-mpcith/tree/main/crypto-bigint) package is not a dependency, we use it to compute some benchmarks to estimate the performance of another verfiable encryption scheme from the literature (that estimate can be found in [cs03-estimates.txt](https://github.com/akiratk0355/verenc-mpcith/tree/main/crypto-bigint/cs03-estimates.txt) ). 
